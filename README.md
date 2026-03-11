@@ -3,6 +3,9 @@
 ![Assembly](https://img.shields.io/badge/Assembly-Motorola%2068000-blue)
 ![Hardware](https://img.shields.io/badge/Hardware-PIA%206821-orange)
 ![Project](https://img.shields.io/badge/Project-Interrupt--Driven-green)
+![Architecture](https://img.shields.io/badge/System-Three%20Nodes-purple)
+![Communication](https://img.shields.io/badge/Communication-Interrupt%20%26%20PIA-red)
+![Status](https://img.shields.io/badge/Status-Academic%20Project-lightgrey)
 
 ## 📌 Project Overview
 This project implements a three-node communication system based on the **Motorola 68000** and **PIA 6821** parallel interfaces.
