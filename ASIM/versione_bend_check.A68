@@ -1,0 +1,260 @@
+				ORG     $8000
+STOPB    	DC.B    0
+STOPC             DC.B   0
+LOCK    	DC.B    0
+TURNO   	DC.B    0
+CHARMSGB    DC.B    0
+CHARMSGC    DC.B    0
+COUNTMSG    DC.B    0
+COUNT       DC.B    0
+FASE2       DC.B    0
+FIRST       DC.B    0
+ENDB        DC.B    0
+ENDC        DC.B    0
+ZEROB   	DC.B    0
+ZEROC       DC.B    0
+TEMP    	DC.B    9
+BUFFER  	DS.B    80
+TEMP2   	DC.B    9
+
+		ORG     $8200
+PIA1D   EQU     $2004
+PIA1C   EQU     $2005
+PIA2D   EQU     $2008
+PIA2C   EQU     $2009
+N       EQU     3
+K       EQU     6
+
+MAIN    JSR     PIAINIT
+        	MOVE.W  SR,D0
+        	ANDI.W  #$D8FF,D0 *imposto stato utente e abilito interrupt 
+        	MOVE.W  D0,SR
+LOOP    JMP     LOOP *ciclo caldo 
+
+PIAINIT MOVE.B  #0,PIA1C
+        	MOVE.B  #0,PIA1D
+        	MOVE.B  #%00100101,PIA1C
+        	MOVE.B  #0,PIA2C
+        	MOVE.B  #0,PIA2D
+        	MOVE.B  #%00100101,PIA2C
+        	RTS
+		
+		ORG     $8700
+ISR_B   MOVEM.L D0-D7/A0-A2,-(SP) *salvo i registri sullo stack 
+	 MOVE.B STOPB,D0 
+	 CMPI.B #8,D0 
+	 BEQ 	IB_RTE  
+	 MOVE.B STOPC,D0 
+	 CMPI.B #8,D0  
+	 BEQ IB_RTE 
+		
+	MOVE.B  TURNO,D0 
+        	CMP.B   #0,D0 *Risorsa libera? 
+        	BNE     IB_START
+        	TAS     LOCK 
+        	BNE     IB_RTE_TAS
+        	MOVE.B  TURNO,D0
+        	CMP.B   #2,D0 *Se C ha controllo esci (non più necessario) 
+        	BEQ     IB_RTE
+        	MOVE.B  #1,TURNO
+        	MOVE.B  #0,LOCK
+		
+IB_START  MOVE.B  TURNO,D0 
+        	CMPI.B  #1,D0 *Turno di B? 
+        	BNE     IB_RTE
+        	*MOVE.B  ENDB,D0 *messaggio terminato? (per la fase2) 
+        	*CMPI.B  #0,D0
+        	*BNE     IB_RTE
+        	MOVEA.L #PIA1D,A0
+        	MOVEA.L #BUFFER,A1
+        	MOVE.B  COUNT,D0
+        	MOVE.B  (A0),(A1,D0) *leggo dalla PIA 
+        	ADDQ.B  #1,D0
+        	MOVE.B  D0,COUNT
+        	MOVE.B  CHARMSGB,D1
+        	ADDQ.B  #1,D1
+        	MOVE.B  D1,CHARMSGB
+        	CMPI.B  #N,D1
+        	BNE     IB_RTE
+		
+		*messaggio completato da B 
+        	MOVE.B  COUNTMSG,D2
+        	ADDQ.B  #1,D2
+        	MOVE.B  D2,COUNTMSG
+        	MOVE.B  #0,CHARMSGB
+        
+		*Check attivazione fase 2
+	CMPI.B  #K,D2
+	BNE     IB_CHECK_FASE2
+        	CMPI.B  #0,FASE2 
+        	BNE     IB_CHECK_FASE2
+        	MOVE.B  #1,FASE2 *attivo fase2 
+	MOVE.B  #0,D2
+	MOVE.B  D2,COUNTMSG
+		
+IB_CHECK_FASE2  CMPI.B  #1,FASE2 *Se in fase2 
+        	BNE     IB_PASS_TURNO
+	CMPI.B	#0,COUNTMSG 
+	BEQ		IB_PASS_TURNO 	
+       	 MOVE.B  COUNT,D4
+        	SUBI.B  #N,D4 *Calcolo indice primo carattere (dopo aver ricevuto MSG) 
+        	MOVE.B  D4,FIRST
+        	MOVE.B  (A1,D4),D5 *carico primo carattere 
+        	CMPI.B  #0,D5
+       	 BNE     IB_ZERO_B_FALSE
+      	  MOVE.B  #1,ZEROB *se è zero alzo il flag 
+       	 BRA     IB_SET_END_B
+IB_ZERO_B_FALSE MOVE.B  #0,ZEROB
+IB_SET_END_B    MOVE.B  #1,ENDB *ho ricevuto msg 
+       	 MOVE.B  ENDC,D6 
+       	CMPI.B  #1,D6 *msg_c pronto?
+      	BNE     IB_PASS_TURNO
+        	MOVE.B  ZEROB,D0
+       	MOVE.B  ZEROC,D1
+       	CMPI.B  #1,D0 *controllo i flag degli zeri 
+        	BNE     IB_RESET_FLAGS *se non sono entrambi alti resetto 
+        	CMPI.B  #1,D1 
+        	BNE     IB_RESET_FLAGS
+        	MOVE.B  #0,PIA1C          * Reset controllo PIA1
+        	MOVE.B  #0,PIA1D          * Reset dati PIA1
+        	MOVE.B  #0,PIA2C          * Reset controllo PIA2
+        	MOVE.B  #0,PIA2D          * Reset dati PIA2
+        	MOVE.B  #8,D7
+        	MOVE.B D7,STOPB  
+        	BRA     IB_RTE
+IB_RESET_FLAGS  MOVE.B  #0,ENDB *resetto i flag per ricevere di nuovo 
+        	MOVE.B  #0,ENDC
+	MOVE.B  #0,ZEROB
+        	MOVE.B  #0,ZEROC
+IB_PASS_TURNO   MOVE.B  #2,TURNO *passo il turno a C 
+        	MOVE.B  PIA2C,D0
+        	ANDI.B  #%10000000,D0
+        	BEQ     IB_RTE
+        	*MOVE.B  ENDC,D1
+        	*CMPI.B  #0,D1
+        	*BNE     IB_RTE
+        	MOVEA.L #PIA2D,A0
+        	MOVE.B  COUNT,D0
+        	MOVE.B  (A0),(A1,D0)
+        	ADDQ.B  #1,D0
+        	MOVE.B  D0,COUNT
+        	MOVE.B  CHARMSGC,D2
+        	ADDQ.B  #1,D2
+        	MOVE.B  D2,CHARMSGC      
+IB_RTE  MOVEM.L (SP)+,D0-D7/A0-A2
+IB_RTE_TAS    RTE
+
+
+
+        ORG     $8900
+ISR_C  MOVEM.L D0-D7/A0-A2,-(SP)
+			MOVE.B STOPB,D0 
+			CMPI.B #8,D0 
+			BEQ 	IC_RTE  
+			MOVE.B STOPC,D0 
+			CMPI.B #8,D0  
+			BEQ IC_RTE 
+        	MOVE.B  TURNO,D0
+        	CMP.B   #0,D0
+        	BNE     IC_START
+        	TAS     LOCK
+        	BNE     IC_RTE_TAS
+        	MOVE.B  TURNO,D0
+        	CMP.B   #1,D0
+        	BEQ     IC_RTE
+        	MOVE.B  #2,TURNO
+			MOVE.B  #0,LOCK
+IC_START MOVE.B  TURNO,D0
+        	CMPI.B  #2,D0
+        	BNE     IC_RTE
+        	*MOVE.B  ENDC,D0
+        	*CMPI.B  #0,D0
+        	*BNE     IC_RTE
+        	MOVEA.L #PIA2D,A0
+        	MOVEA.L #BUFFER,A1
+        	MOVE.B  COUNT,D0
+        	MOVE.B  (A0),(A1,D0)
+        	ADDQ.B  #1,D0
+        	MOVE.B  D0,COUNT
+        	MOVE.B  CHARMSGC,D1
+        	ADDQ.B  #1,D1
+        	MOVE.B  D1,CHARMSGC
+        	CMPI.B  #N,D1
+        	BNE     IC_RTE
+        	MOVE.B  COUNTMSG,D2
+        	ADDQ.B  #1,D2
+        	MOVE.B  D2,COUNTMSG
+        	MOVE.B  #0,CHARMSGC
+        	MOVE.B  FASE2,D3
+        	CMPI.B  #K,D2
+        	BNE     IC_CHECK_FASE2
+        	CMPI.B  #0,D3
+        	BNE     IC_CHECK_FASE2
+        	MOVE.B  #1,FASE2
+        	MOVE.B  #1,D3
+	MOVE.B  #0,D2
+	MOVE.B  D2,COUNTMSG
+IC_CHECK_FASE2
+        	CMPI.B  #1,D3
+        	BNE     IC_PASS_TURNO
+	CMPI.B	#0,COUNTMSG 
+	BEQ		IC_PASS_TURNO 
+        	MOVE.B  COUNT,D4
+        	SUBI.B  #N,D4
+        	MOVE.B  D4,FIRST
+        	MOVE.B  (A1,D4),D5
+        	CMPI.B  #0,D5
+        	BNE     IC_ZERO_C_FALSE
+        	MOVE.B  #1,ZEROC
+        	BRA     IC_SET_END_C
+IC_ZERO_C_FALSE
+        	MOVE.B  #0,ZEROC
+IC_SET_END_C
+        	MOVE.B  #1,ENDC
+        	MOVE.B  ENDB,D6
+        	CMPI.B  #1,D6
+        	BNE     IC_PASS_TURNO
+        	MOVE.B  ZEROB,D0
+        	MOVE.B  ZEROC,D1
+        	CMPI.B  #1,D1
+        	BNE     IC_RESET_FLAGS
+        	CMPI.B  #1,D0
+        	BNE     IC_RESET_FLAGS
+        	MOVE.B  #0,PIA1C
+        	MOVE.B  #0,PIA2C 
+	MOVE.B  #0,PIA1C          * Reset controllo PIA1
+        	MOVE.B  #0,PIA1D          * Reset dati PIA1
+        	MOVE.B  #0,PIA2C          * Reset controllo PIA2
+        	MOVE.B  #0,PIA2D          * Reset dati PIA2
+        	MOVE.B  #8,D7
+        	MOVE.B D7,STOPC
+        	BRA     IC_RTE
+IC_RESET_FLAGS
+        	MOVE.B  #0,ENDB
+        	MOVE.B  #0,ENDC
+	MOVE.B  #0,ZEROB
+        	MOVE.B  #0,ZEROC
+IC_PASS_TURNO
+        	MOVE.B  #1,TURNO
+        	MOVE.B  PIA1C,D0
+        	ANDI.B  #%10000000,D0
+        	BEQ     IC_RTE
+        	*MOVE.B  ENDB,D1
+        	*CMPI.B  #0,D1
+        	*BNE     IC_RTE
+        	MOVEA.L #PIA1D,A0
+        	MOVE.B  COUNT,D0
+        	MOVE.B  (A0),(A1,D0)
+        	ADDQ.B  #1,D0
+        	MOVE.B  D0,COUNT
+        	MOVE.B  CHARMSGB,D2
+        	ADDQ.B  #1,D2
+        	MOVE.B  D2,CHARMSGB
+IC_RTE
+        	MOVEM.L (SP)+,D0-D7/A0-A2
+IC_RTE_TAS
+        	RTE
+        END MAIN 
+
+
+

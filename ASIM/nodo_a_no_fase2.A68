@@ -1,0 +1,340 @@
+        ORG     $8000
+* Variabili globali
+STOPB          DC.B    0
+STOPC          DC.B    0
+LOCK           DC.B    0
+TURNO          DC.B    0
+CHARMSGB       DC.B    0
+CHARMSGC       DC.B    0
+COUNTMSG       DC.B    0
+COUNT          DC.B    0
+FASE2          DC.B    0
+FIRST          DC.B    0
+ENDB           DC.B    0
+ENDC           DC.B    0
+ZEROB          DC.B    0
+ZEROC          DC.B    0
+TEMP           DC.B    9
+BUFFER         DS.B    80
+TEMP2          DC.B    9
+
+        ORG     $8200
+* Definizione registri PIA
+PIA1D   EQU     $2004
+PIA1C   EQU     $2005
+PIA2D   EQU     $2008
+PIA2C   EQU     $2009
+N       EQU     3
+K       EQU     6
+
+* Programma principale
+MAIN    
+        JSR     PIAINIT
+        MOVE.W  SR,D0
+        ANDI.W  #$D8FF,D0      * Abilita interrupt e stato utente
+        MOVE.W  D0,SR
+LOOP    JMP 	LOOP 
+
+* Inizializzazione PIA
+PIAINIT 
+        MOVE.B  #0,PIA1C
+        MOVE.B  #0,PIA1D
+        MOVE.B  #%00100101,PIA1C
+        MOVE.B  #0,PIA2C
+        MOVE.B  #0,PIA2D
+        MOVE.B  #%00100101,PIA2C
+        RTS
+
+        ORG     $8700
+* ISR per periferica B
+ISR_B   
+        MOVEM.L D0-D7/A0-A2,-(SP)
+        
+        * if (STOPB == 1 || STOPC == 1) return;
+        MOVE.B STOPB,D0 
+        CMPI.B #1,D0 
+        BEQ    IB_RTE  
+        MOVE.B STOPC,D0 
+        CMPI.B #1,D0  
+        BEQ    IB_RTE 
+        
+        * if (TURNO == 0) { gestione lock }
+        MOVE.B TURNO,D0 
+        CMP.B  #0,D0 
+        BNE    IB_START        * if (TURNO != 0) salta a IB_START
+        
+        TAS    LOCK 
+        BNE    IB_RTE      * if (lock occupato) esci
+        MOVE.B TURNO,D0
+        CMP.B  #2,D0 
+        BEQ    IB_RTE           * if (TURNO == 2) esci
+        MOVE.B #1,TURNO        * TURNO = 1
+        MOVE.B #0,LOCK         * lock = 0
+
+IB_START  
+        * if (TURNO != 1) return;
+        MOVE.B TURNO,D0 
+        CMPI.B #1,D0 
+        BNE    IB_RTE
+        
+        * Lettura carattere da PIA1
+        MOVEA.L #PIA1D,A0
+        MOVEA.L #BUFFER,A1
+        MOVE.B COUNT,D0
+        MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA1D
+        ADDQ.B #1,D0
+        MOVE.B D0,COUNT
+        MOVE.B CHARMSGB,D1
+        ADDQ.B #1,D1
+        MOVE.B D1,CHARMSGB
+        
+        * if (CHARMSGB != N) return;
+        CMPI.B #N,D1
+        BNE    IB_RTE
+        
+        * Messaggio completo - gestione contatori
+        MOVE.B COUNTMSG,D2
+        ADDQ.B #1,D2
+        MOVE.B D2,COUNTMSG
+        MOVE.B #0,CHARMSGB     * CHARMSGB = 0
+        
+        * if (COUNTMSG != K) salta a controllo fase2
+        CMPI.B #K,D2
+        BNE    IB_CHECK_FASE2
+        
+        * if (FASE2 != 0) salta a controllo fase2  
+        CMPI.B #0,FASE2
+        BNE    IB_CHECK_FASE2
+        
+        * Attivazione fase 2
+        MOVE.B #1,FASE2        * FASE2 = 1
+        MOVE.B #0,COUNTMSG     * COUNTMSG = 0
+
+IB_CHECK_FASE2  
+        * if (FASE2 != 1) salta a passaggio turno
+        CMPI.B #1,FASE2
+        BNE    IB_PASS_TURNO
+        
+        * if (COUNTMSG == 0) salta a passaggio turno
+        CMPI.B #0,COUNTMSG
+        BEQ    IB_PASS_TURNO
+        
+        * Analisi primo carattere messaggio
+        MOVE.B COUNT,D4
+        SUBI.B #N,D4           * FIRST = COUNT - N
+        MOVE.B D4,FIRST
+        MOVE.B (A1,D4),D5      * D5 = buffer[FIRST]
+        CMPI.B #0,D5
+        BNE    IB_ZERO_B_FALSE * if (buffer[FIRST] != 0) salta
+        
+        MOVE.B #1,ZEROB        * ZEROB = 1
+        BRA    IB_SET_END_B
+
+IB_ZERO_B_FALSE 
+        MOVE.B #0,ZEROB        * ZEROB = 0
+
+IB_SET_END_B    
+        MOVE.B #1,ENDB         * ENDB = 1
+        
+        * if (ENDC != 1) salta a passaggio turno
+        MOVE.B ENDC,D6
+        CMPI.B #1,D6
+        BNE    IB_PASS_TURNO
+        
+        * if (ZEROB != 1 || ZEROC != 1) reset flag
+        MOVE.B ZEROB,D0
+        MOVE.B ZEROC,D1
+        CMPI.B #1,D0
+        BNE    IB_RESET_FLAGS  * if (ZEROB != 1) salta
+        CMPI.B #1,D1
+        BNE    IB_RESET_FLAGS  * if (ZEROC != 1) salta
+        
+        * Terminazione sistema - entrambi i messaggi iniziano con 0
+		MOVE.B PIA1D,D0
+		MOVE.B PIA2D,D0
+        MOVE.B #0,PIA1C        * Disabilita PIA1
+        MOVE.B #0,PIA2C        * Disabilita PIA2
+        MOVE.B #1,STOPB        * STOPB = 1
+        BRA    IB_RTE
+
+IB_RESET_FLAGS  
+        * Reset per prossima coppia
+        MOVE.B #0,ENDB
+        MOVE.B #0,ENDC
+        MOVE.B #0,ZEROB
+        MOVE.B #0,ZEROC
+
+IB_PASS_TURNO   
+        * Passaggio turno a C
+        MOVE.B #2,TURNO        * TURNO = 2
+        
+        * Gestione interrupt pendente di C
+        MOVE.B PIA2C,D0
+        ANDI.B #%10000000,D0   * Controlla bit interrupt
+        BEQ    IB_RTE           * if (no interrupt pendente) esci
+        
+        MOVEA.L #PIA2D,A0
+        MOVE.B COUNT,D0
+        MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA2D
+        ADDQ.B #1,D0
+        MOVE.B D0,COUNT
+        MOVE.B CHARMSGC,D2
+        ADDQ.B #1,D2
+        MOVE.B D2,CHARMSGC
+
+IB_RTE  
+        MOVEM.L (SP)+,D0-D7/A0-A2    
+        RTE
+
+        ORG     $8900
+* ISR per periferica C (simmetrica a B)
+ISR_C   
+        MOVEM.L D0-D7/A0-A2,-(SP)
+        
+        * if (STOPB == 1 || STOPC == 1) return;
+        MOVE.B STOPB,D0 
+        CMPI.B #1,D0 
+        BEQ    IC_RTE  
+        MOVE.B STOPC,D0 
+        CMPI.B #1,D0  
+        BEQ    IC_RTE 
+        
+        * if (TURNO == 0) { gestione lock }
+        MOVE.B TURNO,D0
+        CMP.B  #0,D0
+        BNE    IC_START        * if (TURNO != 0) salta
+        
+        TAS    LOCK
+        BNE    IC_RTE_TAS      * if (lock occupato) esci
+        MOVE.B TURNO,D0
+        CMP.B  #1,D0
+        BEQ    IC_RTE           * if (TURNO == 1) esci
+        MOVE.B #2,TURNO        * TURNO = 2
+        MOVE.B #0,LOCK         * lock = 0
+
+IC_START 
+        * if (TURNO != 2) return;
+        MOVE.B TURNO,D0
+        CMPI.B #2,D0
+        BNE    IC_RTE
+        
+        * Lettura carattere da PIA2
+        MOVEA.L #PIA2D,A0
+        MOVEA.L #BUFFER,A1
+        MOVE.B COUNT,D0
+        MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA2D
+        ADDQ.B #1,D0
+        MOVE.B D0,COUNT
+        MOVE.B CHARMSGC,D1
+        ADDQ.B #1,D1
+        MOVE.B D1,CHARMSGC
+        
+        * if (CHARMSGC != N) return;
+        CMPI.B #N,D1
+        BNE    IC_RTE
+        
+        * Messaggio completo - gestione contatori
+        MOVE.B COUNTMSG,D2
+        ADDQ.B #1,D2
+        MOVE.B D2,COUNTMSG
+        MOVE.B #0,CHARMSGC     * CHARMSGC = 0
+        
+        MOVE.B FASE2,D3
+        * if (COUNTMSG != K) salta a controllo fase2
+        CMPI.B #K,D2
+        BNE    IC_CHECK_FASE2
+        
+        * if (FASE2 != 0) salta a controllo fase2
+        CMPI.B #0,D3
+        BNE    IC_CHECK_FASE2
+        
+        * Attivazione fase 2
+        MOVE.B #1,FASE2        * FASE2 = 1
+        MOVE.B #0,COUNTMSG     * COUNTMSG = 0
+
+IC_CHECK_FASE2
+        * if (FASE2 != 1) salta a passaggio turno
+        CMPI.B #1,D3
+        BNE    IC_PASS_TURNO
+        
+        * if (COUNTMSG == 0) salta a passaggio turno
+        CMPI.B #0,COUNTMSG
+        BEQ    IC_PASS_TURNO
+        
+        * Analisi primo carattere messaggio
+        MOVE.B COUNT,D4
+        SUBI.B #N,D4           * FIRST = COUNT - N
+        MOVE.B D4,FIRST
+        MOVE.B (A1,D4),D5      * D5 = buffer[FIRST]
+        CMPI.B #0,D5
+        BNE    IC_ZERO_C_FALSE * if (buffer[FIRST] != 0) salta
+        
+        MOVE.B #1,ZEROC        * ZEROC = 1
+        BRA    IC_SET_END_C
+
+IC_ZERO_C_FALSE
+        MOVE.B #0,ZEROC        * ZEROC = 0
+
+IC_SET_END_C
+        MOVE.B #1,ENDC         * ENDC = 1
+        
+        * if (ENDB != 1) salta a passaggio turno
+        MOVE.B ENDB,D6
+        CMPI.B #1,D6
+        BNE    IC_PASS_TURNO
+        
+        * if (ZEROB != 1 || ZEROC != 1) reset flag
+        MOVE.B ZEROB,D0
+        MOVE.B ZEROC,D1
+        CMPI.B #1,D1
+        BNE    IC_RESET_FLAGS  * if (ZEROC != 1) salta
+        CMPI.B #1,D0
+        BNE    IC_RESET_FLAGS  * if (ZEROB != 1) salta
+        
+        * Terminazione sistema - entrambi i messaggi iniziano con 0
+		MOVE.B PIA1D,D0
+		MOVE.B PIA2D,D0
+        MOVE.B #0,PIA1C        * Disabilita PIA1
+        MOVE.B #0,PIA2C        * Disabilita PIA2
+        MOVE.B #1,STOPC        * STOPC = 8
+        BRA    IC_RTE
+
+IC_RESET_FLAGS
+        * Reset per prossima coppia
+        MOVE.B #0,ENDB
+        MOVE.B #0,ENDC
+        MOVE.B #0,ZEROB
+        MOVE.B #0,ZEROC
+
+IC_PASS_TURNO
+        * Passaggio turno a B
+        MOVE.B #1,TURNO        * TURNO = 1
+        
+        * Gestione interrupt pendente di B
+        MOVE.B PIA1C,D0
+        ANDI.B #%10000000,D0   * Controlla bit interrupt
+        BEQ    IC_RTE           * if (no interrupt pendente) esci
+        
+        MOVEA.L #PIA1D,A0
+        MOVE.B COUNT,D0
+        MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA1D
+        ADDQ.B #1,D0
+        MOVE.B D0,COUNT
+        MOVE.B CHARMSGB,D2
+        ADDQ.B #1,D2
+        MOVE.B D2,CHARMSGB
+
+IC_RTE
+        MOVEM.L (SP)+,D0-D7/A0-A2
+IC_RTE_TAS
+        RTE
+        
+        END MAIN
+
+
+
+
+
+
+
+

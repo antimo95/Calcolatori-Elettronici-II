@@ -1,0 +1,335 @@
+00008000                                     1          ORG     $8000
+00008000                                     2  * Variabili globali
+00008000  00                                 3  STOPB          DC.B    0
+00008001  00                                 4  STOPC          DC.B    0
+00008002  00                                 5  LOCK           DC.B    0
+00008003  00                                 6  TURNO          DC.B    0
+00008004  00                                 7  CHARMSGB       DC.B    0
+00008005  00                                 8  CHARMSGC       DC.B    0
+00008006  00                                 9  COUNTMSG       DC.B    0
+00008007  00                                10  COUNT          DC.B    0
+00008008  00                                11  FASE2          DC.B    0
+00008009  00                                12  FIRST          DC.B    0
+0000800A  00                                13  ENDB           DC.B    0
+0000800B  00                                14  ENDC           DC.B    0
+0000800C  00                                15  ZEROB          DC.B    0
+0000800D  00                                16  ZEROC          DC.B    0
+0000800E  09                                17  TEMP           DC.B    9
+0000800F                                    18  BUFFER         DS.B    80
+0000805F  09                                19  TEMP2          DC.B    9
+00008060                                    20  
+00008200                                    21          ORG     $8200
+00008200                                    22  * Definizione registri PIA
+00008200  =00002004                         23  PIA1D   EQU     $2004
+00008200  =00002005                         24  PIA1C   EQU     $2005
+00008200  =00002008                         25  PIA2D   EQU     $2008
+00008200  =00002009                         26  PIA2C   EQU     $2009
+00008200  =00000003                         27  N       EQU     3
+00008200  =00000006                         28  K       EQU     6
+00008200                                    29  
+00008200                                    30  * Programma principale
+00008200                                    31  MAIN    
+00008200  4EB9 00008214                     32          JSR     PIAINIT
+00008206  40C0                              33          MOVE.W  SR,D0
+00008208  0240 D8FF                         34          ANDI.W  #$D8FF,D0      * Abilita interrupt e stato utente
+0000820C  46C0                              35          MOVE.W  D0,SR
+0000820E  4EF9 0000820E                     36  LOOP    JMP 	LOOP 
+00008214                                    37  
+00008214                                    38  * Inizializzazione PIA
+00008214                                    39  PIAINIT 
+00008214  11FC 0000 2005                    40          MOVE.B  #0,PIA1C
+0000821A  11FC 0000 2004                    41          MOVE.B  #0,PIA1D
+00008220  11FC 0025 2005                    42          MOVE.B  #%00100101,PIA1C
+00008226  11FC 0000 2009                    43          MOVE.B  #0,PIA2C
+0000822C  11FC 0000 2008                    44          MOVE.B  #0,PIA2D
+00008232  11FC 0025 2009                    45          MOVE.B  #%00100101,PIA2C
+00008238  4E75                              46          RTS
+0000823A                                    47  
+00008700                                    48          ORG     $8700
+00008700                                    49  * ISR per periferica B
+00008700                                    50  ISR_B   
+00008700  48E7 FFE0                         51          MOVEM.L D0-D7/A0-A2,-(SP)
+00008704                                    52          
+00008704                                    53          * if (STOPB == 1 || STOPC == 1) return;
+00008704  1039 00008000                     54          MOVE.B STOPB,D0 
+0000870A  0C00 0001                         55          CMPI.B #1,D0 
+0000870E  6700 01B4                         56          BEQ    IB_RTE  
+00008712  1039 00008001                     57          MOVE.B STOPC,D0 
+00008718  0C00 0001                         58          CMPI.B #1,D0  
+0000871C  6700 01A6                         59          BEQ    IB_RTE 
+00008720                                    60          
+00008720                                    61          * if (TURNO == 0) { gestione lock }
+00008720  1039 00008003                     62          MOVE.B TURNO,D0 
+00008726  B03C 0000                         63          CMP.B  #0,D0 
+0000872A  6600 002A                         64          BNE    IB_START        * if (TURNO != 0) salta a IB_START
+0000872E                                    65          
+0000872E  4AF9 00008002                     66          TAS    LOCK 
+00008734  6600 018E                         67          BNE    IB_RTE      * if (lock occupato) esci
+00008738  1039 00008003                     68          MOVE.B TURNO,D0
+0000873E  B03C 0002                         69          CMP.B  #2,D0 
+00008742  6700 0180                         70          BEQ    IB_RTE           * if (TURNO == 2) esci
+00008746  13FC 0001 00008003                71          MOVE.B #1,TURNO        * TURNO = 1
+0000874E  13FC 0000 00008002                72          MOVE.B #0,LOCK         * lock = 0
+00008756                                    73  
+00008756                                    74  IB_START  
+00008756                                    75          * if (TURNO != 1) return;
+00008756  1039 00008003                     76          MOVE.B TURNO,D0 
+0000875C  0C00 0001                         77          CMPI.B #1,D0 
+00008760  6600 0162                         78          BNE    IB_RTE
+00008764                                    79          
+00008764                                    80          * Lettura carattere da PIA1
+00008764  207C 00002004                     81          MOVEA.L #PIA1D,A0
+0000876A  227C 0000800F                     82          MOVEA.L #BUFFER,A1
+00008770  1039 00008007                     83          MOVE.B COUNT,D0
+00008776  1390 0000                         84          MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA1D
+0000877A  5200                              85          ADDQ.B #1,D0
+0000877C  13C0 00008007                     86          MOVE.B D0,COUNT
+00008782  1239 00008004                     87          MOVE.B CHARMSGB,D1
+00008788  5201                              88          ADDQ.B #1,D1
+0000878A  13C1 00008004                     89          MOVE.B D1,CHARMSGB
+00008790                                    90          
+00008790                                    91          * if (CHARMSGB != N) return;
+00008790  0C01 0003                         92          CMPI.B #N,D1
+00008794  6600 012E                         93          BNE    IB_RTE
+00008798                                    94          
+00008798                                    95          * Messaggio completo - gestione contatori
+00008798  1439 00008006                     96          MOVE.B COUNTMSG,D2
+0000879E  5202                              97          ADDQ.B #1,D2
+000087A0  13C2 00008006                     98          MOVE.B D2,COUNTMSG
+000087A6  13FC 0000 00008004                99          MOVE.B #0,CHARMSGB     * CHARMSGB = 0
+000087AE                                   100          
+000087AE                                   101          * if (COUNTMSG != K) salta a controllo fase2
+000087AE  0C02 0006                        102          CMPI.B #K,D2
+000087B2  6600 001E                        103          BNE    IB_CHECK_FASE2
+000087B6                                   104          
+000087B6                                   105          * if (FASE2 != 0) salta a controllo fase2  
+000087B6  0C39 0000 00008008               106          CMPI.B #0,FASE2
+000087BE  6600 0012                        107          BNE    IB_CHECK_FASE2
+000087C2                                   108          
+000087C2                                   109          * Attivazione fase 2
+000087C2  13FC 0001 00008008               110          MOVE.B #1,FASE2        * FASE2 = 1
+000087CA  13FC 0000 00008006               111          MOVE.B #0,COUNTMSG     * COUNTMSG = 0
+000087D2                                   112  
+000087D2                                   113  IB_CHECK_FASE2  
+000087D2                                   114          * if (FASE2 != 1) salta a passaggio turno
+000087D2  0C39 0001 00008008               115          CMPI.B #1,FASE2
+000087DA  6600 00AE                        116          BNE    IB_PASS_TURNO
+000087DE                                   117          
+000087DE                                   118          * if (COUNTMSG == 0) salta a passaggio turno
+000087DE  0C39 0000 00008006               119          CMPI.B #0,COUNTMSG
+000087E6  6700 00A2                        120          BEQ    IB_PASS_TURNO
+000087EA                                   121          
+000087EA                                   122          * Analisi primo carattere messaggio
+000087EA  1839 00008007                    123          MOVE.B COUNT,D4
+000087F0  5704                             124          SUBI.B #N,D4           * FIRST = COUNT - N
+000087F2  13C4 00008009                    125          MOVE.B D4,FIRST
+000087F8  1A31 4000                        126          MOVE.B (A1,D4),D5      * D5 = buffer[FIRST]
+000087FC  0C05 0000                        127          CMPI.B #0,D5
+00008800  6600 000E                        128          BNE    IB_ZERO_B_FALSE * if (buffer[FIRST] != 0) salta
+00008804                                   129          
+00008804  13FC 0001 0000800C               130          MOVE.B #1,ZEROB        * ZEROB = 1
+0000880C  6000 000A                        131          BRA    IB_SET_END_B
+00008810                                   132  
+00008810                                   133  IB_ZERO_B_FALSE 
+00008810  13FC 0000 0000800C               134          MOVE.B #0,ZEROB        * ZEROB = 0
+00008818                                   135  
+00008818                                   136  IB_SET_END_B    
+00008818  13FC 0001 0000800A               137          MOVE.B #1,ENDB         * ENDB = 1
+00008820                                   138          
+00008820                                   139          * if (ENDC != 1) salta a passaggio turno
+00008820  1C39 0000800B                    140          MOVE.B ENDC,D6
+00008826  0C06 0001                        141          CMPI.B #1,D6
+0000882A  6600 005E                        142          BNE    IB_PASS_TURNO
+0000882E                                   143          
+0000882E                                   144          * if (ZEROB != 1 || ZEROC != 1) reset flag
+0000882E  1039 0000800C                    145          MOVE.B ZEROB,D0
+00008834  1239 0000800D                    146          MOVE.B ZEROC,D1
+0000883A  0C00 0001                        147          CMPI.B #1,D0
+0000883E  6600 002A                        148          BNE    IB_RESET_FLAGS  * if (ZEROB != 1) salta
+00008842  0C01 0001                        149          CMPI.B #1,D1
+00008846  6600 0022                        150          BNE    IB_RESET_FLAGS  * if (ZEROC != 1) salta
+0000884A                                   151          
+0000884A                                   152          * Terminazione sistema - entrambi i messaggi iniziano con 0
+0000884A  1038 2004                        153  		MOVE.B PIA1D,D0
+0000884E  1038 2008                        154  		MOVE.B PIA2D,D0
+00008852  11FC 0000 2005                   155          MOVE.B #0,PIA1C        * Disabilita PIA1
+00008858  11FC 0000 2009                   156          MOVE.B #0,PIA2C        * Disabilita PIA2
+0000885E  13FC 0001 00008000               157          MOVE.B #1,STOPB        * STOPB = 1
+00008866  6000 005C                        158          BRA    IB_RTE
+0000886A                                   159  
+0000886A                                   160  IB_RESET_FLAGS  
+0000886A                                   161          * Reset per prossima coppia
+0000886A  13FC 0000 0000800A               162          MOVE.B #0,ENDB
+00008872  13FC 0000 0000800B               163          MOVE.B #0,ENDC
+0000887A  13FC 0000 0000800C               164          MOVE.B #0,ZEROB
+00008882  13FC 0000 0000800D               165          MOVE.B #0,ZEROC
+0000888A                                   166  
+0000888A                                   167  IB_PASS_TURNO   
+0000888A                                   168          * Passaggio turno a C
+0000888A  13FC 0002 00008003               169          MOVE.B #2,TURNO        * TURNO = 2
+00008892                                   170          
+00008892                                   171          * Gestione interrupt pendente di C
+00008892  1038 2009                        172          MOVE.B PIA2C,D0
+00008896  0200 0080                        173          ANDI.B #%10000000,D0   * Controlla bit interrupt
+0000889A  6700 0028                        174          BEQ    IB_RTE           * if (no interrupt pendente) esci
+0000889E                                   175          
+0000889E  207C 00002008                    176          MOVEA.L #PIA2D,A0
+000088A4  1039 00008007                    177          MOVE.B COUNT,D0
+000088AA  1390 0000                        178          MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA2D
+000088AE  5200                             179          ADDQ.B #1,D0
+000088B0  13C0 00008007                    180          MOVE.B D0,COUNT
+000088B6  1439 00008005                    181          MOVE.B CHARMSGC,D2
+000088BC  5202                             182          ADDQ.B #1,D2
+000088BE  13C2 00008005                    183          MOVE.B D2,CHARMSGC
+000088C4                                   184  
+000088C4                                   185  IB_RTE  
+000088C4  4CDF 07FF                        186          MOVEM.L (SP)+,D0-D7/A0-A2    
+000088C8  4E73                             187          RTE
+000088CA                                   188  
+00008900                                   189          ORG     $8900
+00008900                                   190  * ISR per periferica C (simmetrica a B)
+00008900                                   191  ISR_C   
+00008900  48E7 FFE0                        192          MOVEM.L D0-D7/A0-A2,-(SP)
+00008904                                   193          
+00008904                                   194          * if (STOPB == 1 || STOPC == 1) return;
+00008904  1039 00008000                    195          MOVE.B STOPB,D0 
+0000890A  0C00 0001                        196          CMPI.B #1,D0 
+0000890E  6700 01B2                        197          BEQ    IC_RTE  
+00008912  1039 00008001                    198          MOVE.B STOPC,D0 
+00008918  0C00 0001                        199          CMPI.B #1,D0  
+0000891C  6700 01A4                        200          BEQ    IC_RTE 
+00008920                                   201          
+00008920                                   202          * if (TURNO == 0) { gestione lock }
+00008920  1039 00008003                    203          MOVE.B TURNO,D0
+00008926  B03C 0000                        204          CMP.B  #0,D0
+0000892A  6600 002A                        205          BNE    IC_START        * if (TURNO != 0) salta
+0000892E                                   206          
+0000892E  4AF9 00008002                    207          TAS    LOCK
+00008934  6600 0190                        208          BNE    IC_RTE_TAS      * if (lock occupato) esci
+00008938  1039 00008003                    209          MOVE.B TURNO,D0
+0000893E  B03C 0001                        210          CMP.B  #1,D0
+00008942  6700 017E                        211          BEQ    IC_RTE           * if (TURNO == 1) esci
+00008946  13FC 0002 00008003               212          MOVE.B #2,TURNO        * TURNO = 2
+0000894E  13FC 0000 00008002               213          MOVE.B #0,LOCK         * lock = 0
+00008956                                   214  
+00008956                                   215  IC_START 
+00008956                                   216          * if (TURNO != 2) return;
+00008956  1039 00008003                    217          MOVE.B TURNO,D0
+0000895C  0C00 0002                        218          CMPI.B #2,D0
+00008960  6600 0160                        219          BNE    IC_RTE
+00008964                                   220          
+00008964                                   221          * Lettura carattere da PIA2
+00008964  207C 00002008                    222          MOVEA.L #PIA2D,A0
+0000896A  227C 0000800F                    223          MOVEA.L #BUFFER,A1
+00008970  1039 00008007                    224          MOVE.B COUNT,D0
+00008976  1390 0000                        225          MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA2D
+0000897A  5200                             226          ADDQ.B #1,D0
+0000897C  13C0 00008007                    227          MOVE.B D0,COUNT
+00008982  1239 00008005                    228          MOVE.B CHARMSGC,D1
+00008988  5201                             229          ADDQ.B #1,D1
+0000898A  13C1 00008005                    230          MOVE.B D1,CHARMSGC
+00008990                                   231          
+00008990                                   232          * if (CHARMSGC != N) return;
+00008990  0C01 0003                        233          CMPI.B #N,D1
+00008994  6600 012C                        234          BNE    IC_RTE
+00008998                                   235          
+00008998                                   236          * Messaggio completo - gestione contatori
+00008998  1439 00008006                    237          MOVE.B COUNTMSG,D2
+0000899E  5202                             238          ADDQ.B #1,D2
+000089A0  13C2 00008006                    239          MOVE.B D2,COUNTMSG
+000089A6  13FC 0000 00008005               240          MOVE.B #0,CHARMSGC     * CHARMSGC = 0
+000089AE                                   241          
+000089AE  1639 00008008                    242          MOVE.B FASE2,D3
+000089B4                                   243          * if (COUNTMSG != K) salta a controllo fase2
+000089B4  0C02 0006                        244          CMPI.B #K,D2
+000089B8  6600 001A                        245          BNE    IC_CHECK_FASE2
+000089BC                                   246          
+000089BC                                   247          * if (FASE2 != 0) salta a controllo fase2
+000089BC  0C03 0000                        248          CMPI.B #0,D3
+000089C0  6600 0012                        249          BNE    IC_CHECK_FASE2
+000089C4                                   250          
+000089C4                                   251          * Attivazione fase 2
+000089C4  13FC 0001 00008008               252          MOVE.B #1,FASE2        * FASE2 = 1
+000089CC  13FC 0000 00008006               253          MOVE.B #0,COUNTMSG     * COUNTMSG = 0
+000089D4                                   254  
+000089D4                                   255  IC_CHECK_FASE2
+000089D4                                   256          * if (FASE2 != 1) salta a passaggio turno
+000089D4  0C03 0001                        257          CMPI.B #1,D3
+000089D8  6600 00AE                        258          BNE    IC_PASS_TURNO
+000089DC                                   259          
+000089DC                                   260          * if (COUNTMSG == 0) salta a passaggio turno
+000089DC  0C39 0000 00008006               261          CMPI.B #0,COUNTMSG
+000089E4  6700 00A2                        262          BEQ    IC_PASS_TURNO
+000089E8                                   263          
+000089E8                                   264          * Analisi primo carattere messaggio
+000089E8  1839 00008007                    265          MOVE.B COUNT,D4
+000089EE  5704                             266          SUBI.B #N,D4           * FIRST = COUNT - N
+000089F0  13C4 00008009                    267          MOVE.B D4,FIRST
+000089F6  1A31 4000                        268          MOVE.B (A1,D4),D5      * D5 = buffer[FIRST]
+000089FA  0C05 0000                        269          CMPI.B #0,D5
+000089FE  6600 000E                        270          BNE    IC_ZERO_C_FALSE * if (buffer[FIRST] != 0) salta
+00008A02                                   271          
+00008A02  13FC 0001 0000800D               272          MOVE.B #1,ZEROC        * ZEROC = 1
+00008A0A  6000 000A                        273          BRA    IC_SET_END_C
+00008A0E                                   274  
+00008A0E                                   275  IC_ZERO_C_FALSE
+00008A0E  13FC 0000 0000800D               276          MOVE.B #0,ZEROC        * ZEROC = 0
+00008A16                                   277  
+00008A16                                   278  IC_SET_END_C
+00008A16  13FC 0001 0000800B               279          MOVE.B #1,ENDC         * ENDC = 1
+00008A1E                                   280          
+00008A1E                                   281          * if (ENDB != 1) salta a passaggio turno
+00008A1E  1C39 0000800A                    282          MOVE.B ENDB,D6
+00008A24  0C06 0001                        283          CMPI.B #1,D6
+00008A28  6600 005E                        284          BNE    IC_PASS_TURNO
+00008A2C                                   285          
+00008A2C                                   286          * if (ZEROB != 1 || ZEROC != 1) reset flag
+00008A2C  1039 0000800C                    287          MOVE.B ZEROB,D0
+00008A32  1239 0000800D                    288          MOVE.B ZEROC,D1
+00008A38  0C01 0001                        289          CMPI.B #1,D1
+00008A3C  6600 002A                        290          BNE    IC_RESET_FLAGS  * if (ZEROC != 1) salta
+00008A40  0C00 0001                        291          CMPI.B #1,D0
+00008A44  6600 0022                        292          BNE    IC_RESET_FLAGS  * if (ZEROB != 1) salta
+00008A48                                   293          
+00008A48                                   294          * Terminazione sistema - entrambi i messaggi iniziano con 0
+00008A48  1038 2004                        295  		MOVE.B PIA1D,D0
+00008A4C  1038 2008                        296  		MOVE.B PIA2D,D0
+00008A50  11FC 0000 2005                   297          MOVE.B #0,PIA1C        * Disabilita PIA1
+00008A56  11FC 0000 2009                   298          MOVE.B #0,PIA2C        * Disabilita PIA2
+00008A5C  13FC 0001 00008001               299          MOVE.B #1,STOPC        * STOPC = 8
+00008A64  6000 005C                        300          BRA    IC_RTE
+00008A68                                   301  
+00008A68                                   302  IC_RESET_FLAGS
+00008A68                                   303          * Reset per prossima coppia
+00008A68  13FC 0000 0000800A               304          MOVE.B #0,ENDB
+00008A70  13FC 0000 0000800B               305          MOVE.B #0,ENDC
+00008A78  13FC 0000 0000800C               306          MOVE.B #0,ZEROB
+00008A80  13FC 0000 0000800D               307          MOVE.B #0,ZEROC
+00008A88                                   308  
+00008A88                                   309  IC_PASS_TURNO
+00008A88                                   310          * Passaggio turno a B
+00008A88  13FC 0001 00008003               311          MOVE.B #1,TURNO        * TURNO = 1
+00008A90                                   312          
+00008A90                                   313          * Gestione interrupt pendente di B
+00008A90  1038 2005                        314          MOVE.B PIA1C,D0
+00008A94  0200 0080                        315          ANDI.B #%10000000,D0   * Controlla bit interrupt
+00008A98  6700 0028                        316          BEQ    IC_RTE           * if (no interrupt pendente) esci
+00008A9C                                   317          
+00008A9C  207C 00002004                    318          MOVEA.L #PIA1D,A0
+00008AA2  1039 00008007                    319          MOVE.B COUNT,D0
+00008AA8  1390 0000                        320          MOVE.B (A0),(A1,D0)    * buffer[COUNT] = PIA1D
+00008AAC  5200                             321          ADDQ.B #1,D0
+00008AAE  13C0 00008007                    322          MOVE.B D0,COUNT
+00008AB4  1439 00008004                    323          MOVE.B CHARMSGB,D2
+00008ABA  5202                             324          ADDQ.B #1,D2
+00008ABC  13C2 00008004                    325          MOVE.B D2,CHARMSGB
+00008AC2                                   326  
+00008AC2                                   327  IC_RTE
+00008AC2  4CDF 07FF                        328          MOVEM.L (SP)+,D0-D7/A0-A2
+00008AC6                                   329  IC_RTE_TAS
+00008AC6  4E73                             330          RTE
+00008AC8                                   331          
+00008AC8                                   332          END MAIN
+
+No errors detected
+No warnings generated
